@@ -6,6 +6,8 @@ conda env export > environment.yml
 Load environment
 conda env create -f environment.yml
 
+Enviorment Mujoco_Mod_Parameterss
+
 To use the right gym enviorments
 cd gym
 pip install -e .
