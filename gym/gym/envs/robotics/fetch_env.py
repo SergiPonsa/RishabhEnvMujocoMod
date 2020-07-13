@@ -1,5 +1,5 @@
 import numpy as np
-
+import time
 from gym.envs.robotics import rotations, robot_env, utils
 
 
@@ -91,14 +91,12 @@ class FetchEnv(robot_env.RobotEnv):
         self.reward_type = reward_type
         self.object_pos_from_base = object_pos_from_base
         self.goal_pos_from_base = goal_pos_from_base
+        self.initial_qpos = initial_qpos
         self.joint_control = joint_control
 
+
         self._pid = [PID(),PID(),PID(),PID(),PID(),PID(),PID()]
-        self._linearVelocity = [0,0,0,0,0,0,0,0,0]
-        self._theta = [0,0,0,0,0,0,0,0,0]
-        self._positions =[]
         self._convertdeg2rad = 57.295779578552
-        self._timestep = 0.0001
 
         super(FetchEnv, self).__init__(
             model_path=model_path, n_substeps=n_substeps, n_actions=4,
@@ -141,10 +139,10 @@ class FetchEnv(robot_env.RobotEnv):
         action = np.concatenate([pos_ctrl, rot_ctrl, gripper_ctrl])
 
         # Apply action to simulation.
-        if (self.joint_control == False):
-            utils.ctrl_set_action(self.sim, action)
-            utils.mocap_set_action(self.sim, action)
-        else:
+
+        utils.ctrl_set_action(self.sim, action)
+        utils.mocap_set_action(self.sim, action)
+
 
 
     def _get_obs(self):
@@ -261,27 +259,29 @@ class FetchEnv(robot_env.RobotEnv):
     def _env_setup(self, initial_qpos):
         for name, value in initial_qpos.items():
             self.sim.data.set_joint_qpos(name, value)
-        utils.reset_mocap_welds(self.sim)
-        self.sim.forward()
 
-        # Move end effector into position.
+        if (self.joint_control == False):
+            utils.reset_mocap_welds(self.sim)
+            self.sim.forward()
 
-        Robot_Base = [0.0, 0.0, 0.0]
-        Gripper_init = [0.138,0.0,0.55]
-        gripper_target = np.array(Robot_Base)+np.array(Gripper_init)#+np.array([0.0, 0.0, -0.4])
-        #gripper_target = np.array([0.436, 0.75, 1.15-0.4-0.2]) #+ self.sim.data.get_site_xpos('robot0:grip')
-        #gripper_target =  np.array([0.0, 0.0,-0.4-0.2])+self.sim.data.get_body_xpos('robot1:ee_link')
-        gripper_rotation = np.array([1., 0., 1., 0.] )
-        self.sim.data.set_mocap_pos('robot1:mocap', gripper_target)
-        self.sim.data.set_mocap_quat('robot1:mocap', gripper_rotation)
+            # Move end effector into position.
 
-        for _ in range(10):
-            self.sim.step()
+            Robot_Base = [0.0, 0.0, 0.0]
+            Gripper_init = [0.138,0.0,0.55]
+            gripper_target = np.array(Robot_Base)+np.array(Gripper_init)#+np.array([0.0, 0.0, -0.4])
+            #gripper_target = np.array([0.436, 0.75, 1.15-0.4-0.2]) #+ self.sim.data.get_site_xpos('robot0:grip')
+            #gripper_target =  np.array([0.0, 0.0,-0.4-0.2])+self.sim.data.get_body_xpos('robot1:ee_link')
+            gripper_rotation = np.array([1., 0., 1., 0.] )
+            self.sim.data.set_mocap_pos('robot1:mocap', gripper_target)
+            self.sim.data.set_mocap_quat('robot1:mocap', gripper_rotation)
 
-        # Extract information for sampling goals.
-        self.initial_gripper_xpos = self.sim.data.get_body_xpos('robot1:ee_link').copy() # Needs a change if using the gripper for goal generation
-        if self.has_object:
-            self.height_offset = self.sim.data.get_site_xpos('object0')[2]
+            for _ in range(10):
+                self.sim.step()
+
+            # Extract information for sampling goals.
+            self.initial_gripper_xpos = self.sim.data.get_body_xpos('robot1:ee_link').copy() # Needs a change if using the gripper for goal generation
+            if self.has_object:
+                self.height_offset = self.sim.data.get_site_xpos('object0')[2]
 
     def render(self, mode='human', width=500, height=500):
         return super(FetchEnv, self).render(mode, width, height)
@@ -337,20 +337,43 @@ class FetchEnv(robot_env.RobotEnv):
                                     self.sim.data.sensordata[11],\
                                     self.sim.data.sensordata[12],\
                                     self.sim.data.sensordata[13]] ]
-    def step_joints_offset(self,action_offset):
-
-
-
-
+    def step_joints_home(self):
 
         #Set the PID and PID set joint position
+        if(self.joint_control == True):
+            self.sim.model.neq = 0
+        for i in range(500):
+            for jointNum in range(7):
+                theta = self.sim.data.sensordata[jointNum]
+                target_theta = list(self.initial_qpos.values())[jointNum]
+                self._pid[jointNum].set_target_theta(np.rad2deg(target_theta))
+                linearVelocity = self._pid[jointNum].get_velocity(np.rad2deg(theta)) /self._convertdeg2rad
+                self.sim.data.ctrl[jointNum] = linearVelocity
+
+            self.sim.step()
+            self._get_viewer('human').render()
+            time.sleep(0.002)
+
+    def step_joints_offset(self,action_offset):
+
+        #Set the PID and PID set joint position
+        print("\n")
+        print(self.sim.data.ctrl)
         for jointNum in range(7):
-            theta = self._sim.data.sensordata[jointNum]
-            target_theta =
-            pid[jointNum].set_target_theta(np.rad2deg())
+            theta = self.sim.data.sensordata[jointNum]
+            print(theta)
+            target_theta = theta + action_offset[jointNum]
+            self._pid[jointNum].set_target_theta(np.rad2deg(target_theta))
             linearVelocity = self._pid[jointNum].get_velocity(np.rad2deg(theta)) /self._convertdeg2rad
-            #print(self._linearVelocity)
-            self._sim.data.ctrl[jointNum] = linearVelocity
+            print(linearVelocity)
+
+            print("\n")
+            self.sim.data.ctrl[jointNum] = linearVelocity
+
+        print(self.sim.data.ctrl)
+        self.sim.step()
+        self._get_viewer('human').render()
+        time.sleep(0.002)
 
 
 

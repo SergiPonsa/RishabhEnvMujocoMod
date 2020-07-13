@@ -16,12 +16,12 @@
 		<include file="robot2.xml"></include>
 
 		<body name="table0" pos="0.0 0.0 -0.2">
-			<geom size="4 4 0.2" type="box" condim="3" name="table0" material="floor_mat" mass="2000" friction="0.2 0.2 0.2"></geom>
+			<geom size="4 4 0.2" type="box" condim="3" name="table0" material="floor_mat" mass="2000" friction="1 1 1"></geom>
 		</body>
 
 		<body name="object0" pos="0.025 0.025 0.025">
 			<joint name="object0:joint" type="free" damping="0.00"></joint>
-			<geom size="0.05 0.025" type="cylinder" condim="3" name="object0" material="puck_mat" friction="0.2 0 0" mass="2"></geom>
+			<geom size="0.05 0.025" type="cylinder" condim="3" name="object0" material="puck_mat" friction="0.2 0.2 0" mass="2"></geom>
 			<site name="object0" pos="0 0 0" size="0.02 0.02 0.02" rgba="1 0 0 1" type="sphere"></site>
 		</body>
 
