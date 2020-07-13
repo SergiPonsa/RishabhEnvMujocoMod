@@ -1,7 +1,7 @@
 <mujoco>
 	<compiler angle="radian" />
 	<size nconmax="4000" njmax="8000" nstack="1000000" />
-
+	
 
 
 
@@ -25,23 +25,23 @@
 		</body>
 
 
-
+		
 
 	    <body name="CB0_10" pos="0.8 0.9 0.4">
 		    <freejoint name="cloth" />
 		    <composite count="11 11 1" flatinertia="0.010000" prefix="C" spacing="0.030000" type="cloth">
 		        <joint damping="0.003000" kind="main" stiffness="0.001000" />
 		        <tendon damping="0.002000" kind="shear" stiffness="0.001000" width="0.001" />
-        		<skin inflate="0.002" material="matsponge" subgrid="2" texcoord="true" />
+        		
 		        <geom friction="1.4000000.0050000.001000" mass="0.008000" material="floor_mat_1" rgba=".8 .2 .1 1" size="0.004000" type="sphere" />
 		    </composite>
 	    </body>
 
 
+        
+		
 
-
-
-
+	     
 
 
 
@@ -62,11 +62,11 @@
 	<actuator>
 		<position ctrllimited="true" ctrlrange="0 0.45" joint="robot1:right_knuckle_joint" kp="30000" name="robot1:right_knuckle_joint" user="1" />
 		<position ctrllimited="true" ctrlrange="0 0.45" joint="robot1:left_knuckle_joint" kp="30000" name="robot1:left_knuckle_joint" user="1" />
-
-
-
-
-
-
+		
+		
+		
+		
+        
+        
 	</actuator>
 </mujoco>
