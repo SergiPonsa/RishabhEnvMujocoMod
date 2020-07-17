@@ -95,8 +95,8 @@
 	  </sensor>
 
     <equality>
-        <weld body1="robot1:mocap" body2="robot1:ee_link" solimp="1 1 0.001 0 2" solref="0.000001 1"></weld>
-        <weld body1="robot1:mocap" body2="robot1:ee_link" solimp="1 1 0.001 0 2" solref="0.000001 1"></weld>
+        <weld body1="robot1:mocap" body2="robot1:ee_link" solimp="1 1 0.001 0 2" solref="0.00001 1"></weld>
+        <weld body1="robot1:mocap" body2="robot1:ee_link" solimp="1 1 0.001 0 2" solref="0.00001 1"></weld>
         <!-- <weld body1="robot1:mocap" body2="robot1:ee_link" solimp="1 1 0.001 0 2" solref="0.000001 1"></weld> -->
         <!-- <weld body1="robot1:mocap" body2="robot1:ee_link" solimp="0.9 0.95 0.001" solref="0.02 1"></weld> -->
         <!-- <weld body1="robot1:mocap" body2="robot1:robotiq_85_base_link" solimp="0.9 0.95 0.001" solref="0.02 1"></weld> -->

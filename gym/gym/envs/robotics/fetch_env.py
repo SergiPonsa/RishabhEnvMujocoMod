@@ -1,4 +1,5 @@
 import numpy as np
+import pybullet
 import time
 from gym.envs.robotics import rotations, robot_env, utils
 
@@ -93,6 +94,25 @@ class FetchEnv(robot_env.RobotEnv):
         self.goal_pos_from_base = goal_pos_from_base
         self.initial_qpos = initial_qpos
         self.joint_control = joint_control
+
+        self.parameters_actuators = ["ctrlrange","forcerange","gainprm"]
+        #gainprm has 10 values but only the first one it's used.
+        self.parameters_body = ["mass","inertia"]
+        self.parameters_joints = ["stiffness"]
+        self.parameters_geometry = ["slide_friction","spin_friction","roll_friction"]
+        self.parameters_equ_cons = ["dmin_equ","dmax_equ","width_equ","mid_point_equ","power_equ","damping_equ","stiffness_equ"]
+
+        self.parameters_all = self.parameters_actuators + self.parameters_body + self.parameters_joints\
+                        + self.parameters_geometry + self.parameters_equ_cons
+
+        #Check if the data provided is right
+        self.dict_values_parameters = {}
+        for parameters_pos in self.parameters_all:
+            self.dict_values_parameters[parameters_pos] = 3 if (parameters_pos == "inertia")\
+                                                    else 2 if (parameters_pos == "ctrlrange")\
+                                                    else 2 if (parameters_pos == "forcerange")\
+                                                    else 1 if (parameters_pos == "gainprm")\
+                                                    else 1
 
 
         self._pid = [PID(),PID(),PID(),PID(),PID(),PID(),PID()]
@@ -354,12 +374,119 @@ class FetchEnv(robot_env.RobotEnv):
             self._get_viewer('human').render()
             time.sleep(0.002)
 
-    def step_joints_offset(self,action_offset):
+
+    def exp_mocap_tcp_reward(self,parameters_to_change,parameters_values,np_actions_goal_puck,np_real_robot_pos):
+
+        self.Change_Mujoco_Parameters(parameters_to_change,parameters_values)
+
+        pos_goal = list(np_actions_goal_puck["goal"][0,:])
+        pos_puck = list(np_actions_goal_puck["puck"][0,:])
+
+        self.object_pos_from_base = pos_puck[:2]
+        self.goal_pos_from_base = pos_goal
+
+        obs = self.reset()
+
+        actions_numpy = np_actions_goal_puck["actions"]
+        actions_numpy_gripper = np.zeros([actions_numpy.shape[0],4])
+        actions_numpy_gripper[:,:3] = actions_numpy
+
+        for i in range (actions_numpy.shape[0]):
+            actionRescaled = list(actions_numpy_gripper[i,:])
+            if render:
+                self.render(mode=render_mode)
+            #t.sleep(1)
+
+            obs, reward, done, info = self.step(actionRescaled)
+            env.Save_Data_On_Environment()
+
+        np_exp_tcp = np.array(self.sergi_tcp)
+
+        self.Reset_Save_Data_On_Environment()
+
+        #Delete the data to do a new experiment without increase the memory
+        self.sergi_experiments_joints = []
+        self.sergi_experiments_tcp = []
+
+        #NOTE compute the reward
+        reward = self.compute_reward_tcp_sergi(np_exp_tcp,np_real_robot_pos,orient_multiply = 0.009*0.5)
+        return reward
+    def compute_reward_tcp_sergi(self,np_exp_tcp,np_real_robot_pos,orient_multiply = 0.009*0.5):
+
+        np_okay = np_real_robot_pos
+        np_test = np_exp_tcp
+
+        #TCP euclidian distance, dataframes doesn't have time
+        euc_distbytime_okay = np_Okay[:-1,0:3]-np_Okay[1:,0:3]
+        euc_distbytime_okay = np.multiply(euc_distbytime_okay[:,0],euc_distbytime_okay[:,0]) +\
+                        np.multiply(euc_distbytime_okay[:,1],euc_distbytime_okay[:,1]) +\
+                        np.multiply(euc_distbytime_okay[:,2],euc_distbytime_okay[:,2])
+        euc_distbytime_okay = np.sqrt(euc_distbytime_okay)
+
+
+        euc_distbytime_test = np_test[:-1,0:3]-np_test[1:,0:3]
+        euc_distbytime_test = np.multiply(euc_distbytime_test[:,0],euc_distbytime_test[:,0])+\
+                        np.multiply(euc_distbytime_test[:,1],euc_distbytime_test[:,1])+\
+                        np.multiply(euc_distbytime_test[:,2],euc_distbytime_test[:,2])
+
+        euc_distbytime_test = np.sqrt(euc_distbytime_test)
+
+        euc_distbytime_btw = np.absolute(euc_distbytime_okay - euc_distbytime_test)
+        euc_distbytime_btw = euc_distbytime_btw.sum()/euc_distbytime_btw.shape[0]
+
+        euc_endsdist_btw = np_Okay[:,0:3]-np_test[:,0:3]
+        euc_endsdist_btw = np.multiply(euc_endsdist_btw[:,0],euc_endsdist_btw[:,0])+\
+                        np.multiply(euc_endsdist_btw[:,1],euc_endsdist_btw[:,1])+\
+                        np.multiply(euc_endsdist_btw[:,2],euc_endsdist_btw[:,2])
+        euc_endsdist_btw = np.sqrt(euc_endsdist_btw)
+        euc_endsdist_btw = euc_endsdist_btw.sum()/euc_endsdist_btw.shape[0]
+
+        if(np_Okay.shape[1]==6):
+            np_ori_Okay = np_Okay[:,3:].copy()
+        else:
+            np_ori_Okay =[]
+            for i in range (np_Okay.shape[0]):
+                np_ori_Okay.append(p.getEulerFromQuaternion(np_Okay[i,3:]))
+            np_ori_Okay = np.array(np_ori_Okay)
+        if(np_test.shape[1]==6):
+            np_ori_test = np_test[:,3:].copy()
+        else:
+            np_ori_test =[]
+            for i in range (np_Okay.shape[0]):
+                np_ori_test.append(p.getEulerFromQuaternion(np_test[i,3:]))
+            np_ori_test = np.array(np_ori_test)
+        np_ori = np_ori_Okay - np_ori_test
+        np_ori = np_ori * self.orient_multiply
+        np_ori = np.absolute(np_ori)
+        np_ori = np_ori.sum()/np_ori.shape[0]
+
+        #print("euc_distbytime_btw",euc_distbytime_btw,\
+        #"euc_endsdist_btw",euc_endsdist_btw,\
+        #"\n")
+
+        reward = -1*euc_distbytime_btw + -1*euc_endsdist_btw + -1*np_ori
+
+        return reward
+
+
+    def Excel_TCP_Joints_2_Numpy(self,Excel_path):
+        df = pd.read_excel(Excel_path)
+        df = df.iloc[:,1:]
+        np_data = df.to_numpy()
+        return np_data
+
+    def step_joints_offset(self,action_offset,max_velocity = 30,kp=0.1,ki=0.0,kd=0.0):
 
         #Set the PID and PID set joint position
         print("\n")
         print(self.sim.data.ctrl)
         for jointNum in range(7):
+            self._pid[jointNum].max_velocity = max_velocity
+
+            self._pid[jointNum]._kp = kp
+            self._pid[jointNum]._ki = ki
+            self._pid[jointNum]._kd = kd
+
             theta = self.sim.data.sensordata[jointNum]
             print(theta)
             target_theta = theta + action_offset[jointNum]
@@ -384,7 +511,9 @@ class FetchEnv(robot_env.RobotEnv):
                                                 "robot1:Actuator5","robot1:Actuator6","robot1:Actuator7"],\
                                 bodies_to_change=["robot1:Shoulder_Link","robot1:HalfArm1_Link","robot1:HalfArm2_Link",\
                                                     "robot1:ForeArm_Link","robot1:SphericalWrist1_Link","robot1:SphericalWrist2_Link",\
-                                                    "robot1:Bracelet_Link"]):
+                                                    "robot1:Bracelet_Link","object0"],\
+                                geometries_to_change=["object0"],\
+                                equ_cons_to_change = [0,1]):
         """
         bodies_to_change=["robot1:Shoulder_Link","robot1:HalfArm1_Link","robot1:HalfArm2_Link"\
                             "robot1:ForeArm_Link","robot1:SphericalWrist1_Link","robot1:SphericalWrist2_Link",\
@@ -393,31 +522,18 @@ class FetchEnv(robot_env.RobotEnv):
                             "gripper_central", "left_driver", "left_coupler", "left_follower_link", "left_spring_link"]):
         """
 
-        parameters_actuators = ["ctrlrange","forcerange","gainprm"]
-        #gainprm has 10 values but only the first one it's used.
-        parameters_body = ["mass","inertia"]
-        parameters_joints = ["stiffness"]
-        parameters_all = parameters_actuators + parameters_body + parameters_joints
-
-        #Check if the data provided is right
-        dict_values_parameters = {}
-        for parameters_pos in parameters_all:
-            dict_values_parameters[parameters_pos] = 3 if (parameters_pos == "inertia")\
-                                                    else 2 if (parameters_pos == "ctrlrange")\
-                                                    else 2 if (parameters_pos == "forcerange")\
-                                                    else 1 if (parameters_pos == "gainprm")\
-                                                    else 1
-
         Expected_values = 0
         for parameter_change in parameters_to_change:
-            if (parameter_change in parameters_all):
-                number_of_elements = len(actuators_to_change) if (parameter_change in parameters_actuators)\
-                                    else len(bodies_to_change) if (parameter_change in parameters_body)\
-                                    else len(joints_to_change) if (parameter_change in parameters_joints)\
+            if (parameter_change in self.parameters_all):
+                number_of_elements = len(actuators_to_change) if (parameter_change in self.parameters_actuators)\
+                                    else len(bodies_to_change) if (parameter_change in self.parameters_body)\
+                                    else len(joints_to_change) if (parameter_change in self.parameters_joints)\
+                                    else len(geometries_to_change) if (parameter_change in self.parameters_geometry)\
+                                    else len(equ_cons_to_change) if (parameter_change in self.parameters_equ_cons)\
                                     else 0
-                Expected_values += dict_values_parameters[parameter_change]*number_of_elements
+                Expected_values += self.dict_values_parameters[parameter_change]*number_of_elements
             else:
-                print(parameter_change, "is not a parameter allowed the parameters allowed are ", parameters_all)
+                print(parameter_change, "is not a parameter allowed the parameters allowed are ", self.parameters_all)
 
         if (Expected_values != len(parameters_to_change_values)):
 
@@ -426,16 +542,18 @@ class FetchEnv(robot_env.RobotEnv):
         #Make the actual Change
 
         for parameter_change in parameters_to_change:
-            number_of_elements = len(actuators_to_change) if (parameter_change in parameters_actuators)\
-                                else len(bodies_to_change) if (parameter_change in parameters_body)\
-                                else len(joints_to_change) if (parameter_change in parameters_joints)\
+            number_of_elements = len(actuators_to_change) if (parameter_change in self.parameters_actuators)\
+                                else len(bodies_to_change) if (parameter_change in self.parameters_body)\
+                                else len(joints_to_change) if (parameter_change in self.parameters_joints)\
+                                else len(geometries_to_change) if (parameter_change in self.parameters_geometry)\
+                                else len(equ_cons_to_change) if (parameter_change in self.parameters_equ_cons)\
                                 else 0
             #Get the value
             value=[]
             for j in range(number_of_elements):
 
-                if (dict_values_parameters[parameter_change] > 1):
-                    for i in range (dict_values_parameters[parameter_change]):
+                if (self.dict_values_parameters[parameter_change] > 1):
+                    for i in range (self.dict_values_parameters[parameter_change]):
                         value.append( parameters_to_change_values.pop(0) )
                 elif (parameter_change == "gainprm"):
                     value_aux = [0]*10
@@ -447,7 +565,7 @@ class FetchEnv(robot_env.RobotEnv):
             value_x_element = np.array_split(value,number_of_elements)
 
             #Parameter assignation
-            if (parameter_change in parameters_actuators):
+            if (parameter_change in self.parameters_actuators):
                 for actuator in actuators_to_change:
                     ind_act = list(self.sim.model.actuator_names).index(actuator)
 
@@ -460,16 +578,16 @@ class FetchEnv(robot_env.RobotEnv):
                     else:
                         print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
 
-            if (parameter_change in parameters_joints):
+            if (parameter_change in self.parameters_joints):
                 for joint in joints_to_change:
                     ind_joint = list(self.sim.model.joint_names).index(joint)
 
                     if(parameter_change == "stiffness"):
-                        self.sim.model.joint_stiffness[ind_joint] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                        self.sim.model.jnt_stiffness[ind_joint] = list(list(value_x_element).pop(0)).pop(0) #only a value
                     else:
                         print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
 
-            if (parameter_change in parameters_body):
+            if (parameter_change in self.parameters_body):
                 for body in bodies_to_change:
                     ind_body = list(self.sim.model.body_names).index(body)
 
@@ -479,3 +597,145 @@ class FetchEnv(robot_env.RobotEnv):
                         self.sim.model.body_inertia[ind_body] = np.array(list(value_x_element).pop(0)) #array of 3 values
                     else:
                         print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
+
+            if (parameter_change in self.parameters_geometry):
+                for geo in geometries_to_change:
+                    id_geo = self.sim.model._body_name2id[geo]
+                    ind_geo = list(self.sim.model.geom_bodyid).index(id_geo)
+
+                    if(parameter_change == "slide_friction"):
+                        self.sim.model.geom_friction[ind_geo][0] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    elif(parameter_change == "spin_friction"):
+                        self.sim.model.geom_friction[ind_geo][1] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    elif(parameter_change == "roll_friction"):
+                        self.sim.model.geom_friction[ind_geo][2] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    else:
+                        print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
+
+            if (parameter_change in self.parameters_equ_cons):
+                for equ_cons in equ_cons_to_change:
+
+                    if(parameter_change == "dmin_equ"):
+                        self.sim.model.eq_solimp[equ_cons][0] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    elif(parameter_change == "dmax_equ"):
+                        self.sim.model.eq_solimp[equ_cons][1] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    elif(parameter_change == "width_equ"):
+                        self.sim.model.eq_solimp[equ_cons][2] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    elif(parameter_change == "mid_point_equ"):
+                        self.sim.model.eq_solimp[equ_cons][3] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    elif(parameter_change == "power_equ"):
+                        self.sim.model.eq_solimp[equ_cons][4] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    elif(parameter_change == "damping_equ"):
+                        self.sim.model.eq_solref[equ_cons][0] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    elif(parameter_change == "stiffness_equ"):
+                        self.sim.model.eq_solref[equ_cons][1] = list(list(value_x_element).pop(0)).pop(0) #only a value
+
+                    else:
+                        print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
+
+    def Get_Mujoco_Parameters(self,parameters_to_change,unique_List = True,\
+                                actuators_to_change=["Shoulder_Link_motor","HalfArm1_Link_motor","HalfArm2_Link_motor","ForeArm_Link_motor",\
+                                "SphericalWrist1_Link_motor","SphericalWrist2_Link_motor","Bracelet_Link_motor"],\
+                                joints_to_change=["robot1:Actuator1","robot1:Actuator2","robot1:Actuator3","robot1:Actuator4",\
+                                                "robot1:Actuator5","robot1:Actuator6","robot1:Actuator7"],\
+                                bodies_to_change=["robot1:Shoulder_Link","robot1:HalfArm1_Link","robot1:HalfArm2_Link",\
+                                                    "robot1:ForeArm_Link","robot1:SphericalWrist1_Link","robot1:SphericalWrist2_Link",\
+                                                    "robot1:Bracelet_Link","object0"],\
+                                geometries_to_change=["object0"],\
+                                equ_cons_to_change = [0,1]):
+        """
+        bodies_to_change=["robot1:Shoulder_Link","robot1:HalfArm1_Link","robot1:HalfArm2_Link"\
+                            "robot1:ForeArm_Link","robot1:SphericalWrist1_Link","robot1:SphericalWrist2_Link",\
+                            "robot1:Bracelet_Link","robot1:ee_link",\
+                            "right_driver", "right_coupler", "right_follower_link", "right_spring_link",\
+                            "gripper_central", "left_driver", "left_coupler", "left_follower_link", "left_spring_link"]):
+        """
+
+        parameters_values = []
+
+
+        #Get values
+        for parameter_change in parameters_to_change:
+            #Get the value
+            value=[]
+            if (parameter_change in self.parameters_actuators):
+                for actuator in actuators_to_change:
+                    ind_act = list(self.sim.model.actuator_names).index(actuator)
+
+                    if (parameter_change == "gainprm"):
+                        value.append( self.sim.model.actuator_gainprm[ind_act][0] )
+                    elif (parameter_change == "ctrlrange"):
+                        value.append( list(self.sim.model.actuator_ctrlrange[ind_act]) )
+                    elif (parameter_change == "forcerange"):
+                        value.append( list(self.sim.model.actuator_forcerange[ind_act]) )
+                    else:
+                        print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
+
+            if (parameter_change in self.parameters_joints):
+                for joint in joints_to_change:
+                    ind_joint = list(self.sim.model.joint_names).index(joint)
+
+                    if(parameter_change == "stiffness"):
+                        value.append(self.sim.model.jnt_stiffness[ind_joint])
+                    else:
+                        print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
+
+            if (parameter_change in self.parameters_body):
+                for body in bodies_to_change:
+                    ind_body = list(self.sim.model.body_names).index(body)
+
+                    if(parameter_change == "mass"):
+                        value.append(self.sim.model.body_mass[ind_body])
+                    elif (parameter_change == "inertia"):
+                        value.append( list(self.sim.model.body_inertia[ind_body]) )
+                    else:
+                        print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
+
+            if (parameter_change in self.parameters_geometry):
+                for geo in geometries_to_change:
+                    id_geo = self.sim.model._body_name2id[geo]
+                    ind_geo = list(self.sim.model.geom_bodyid).index(id_geo)
+
+                    if(parameter_change == "slide_friction"):
+                        value.append(self.sim.model.geom_friction[ind_geo][0])
+                    elif(parameter_change == "spin_friction"):
+                        value.append(self.sim.model.geom_friction[ind_geo][1])
+                    elif(parameter_change == "roll_friction"):
+                        value.append(self.sim.model.geom_friction[ind_geo][2])
+                    else:
+                        print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
+
+            if (parameter_change in self.parameters_equ_cons):
+                for equ_cons in equ_cons_to_change:
+
+                    if(parameter_change == "dmin_equ"):
+                        value.append(self.sim.model.eq_solimp[equ_cons][0])
+                    elif(parameter_change == "dmax_equ"):
+                        value.append(self.sim.model.eq_solimp[equ_cons][1])
+                    elif(parameter_change == "width_equ"):
+                        value.append(self.sim.model.eq_solimp[equ_cons][2])
+                    elif(parameter_change == "mid_point_equ"):
+                        value.append(self.sim.model.eq_solimp[equ_cons][3])
+                    elif(parameter_change == "power_equ"):
+                        value.append(self.sim.model.eq_solimp[equ_cons][4])
+                    elif(parameter_change == "damping_equ"):
+                        value.append(self.sim.model.eq_solref[equ_cons][0])
+                    elif(parameter_change == "stiffness_equ"):
+                        value.append(self.sim.model.eq_solref[equ_cons][1])
+
+                    else:
+                        print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
+            parameters_values.append(value)
+
+        if (unique_List == True):
+            param_values_unique = []
+            for param in parameters_to_change:
+                ind_value = parameters_to_change.index(param)
+                if (self.dict_values_parameters[param]>1):
+                    for i in range(len(parameters_values [ind_value])):
+                        param_values_unique += parameters_values [ind_value][i]
+                else:
+                    param_values_unique += parameters_values [ind_value]
+            return param_values_unique
+        else:
+            return parameters_values
