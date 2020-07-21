@@ -31,9 +31,10 @@ number_to_experiment = [1,3,5,7,9,11]
 
 if rank == 0:
     print("Hello I am the master rank", str(rank), "of", str(size))
-    MasterProgram(size,comm)
+    env = envs.make("FetchSlide-v1")
+    MasterProgramCrossEntropy(env,size,comm)
 else:
     print("Hello I am the slave rank", str(rank), "of", str(size))
     env = envs.make("FetchSlide-v1")
     #SlaveProgram(rank,env)
-    SlaveProgram2(rank,env,comm)
+    SlaveProgramCrossEntropyExperimentReward(rank,env,comm,number_to_experiment )

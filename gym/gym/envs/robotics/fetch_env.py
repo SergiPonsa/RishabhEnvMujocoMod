@@ -1,5 +1,6 @@
 import numpy as np
-import pybullet
+import pybullet as p
+import pandas as pd
 import time
 from gym.envs.robotics import rotations, robot_env, utils
 
@@ -269,7 +270,7 @@ class FetchEnv(robot_env.RobotEnv):
                             Robot_Base[1]+self.goal_pos_from_base[1],\
                             Robot_Base[2]+self.goal_pos_from_base[2]]
             goal = np.array(goal)
-            print(goal.shape)
+            #print(goal.shape)
         return goal.copy()
 
     def _is_success(self, achieved_goal, desired_goal):
@@ -375,7 +376,7 @@ class FetchEnv(robot_env.RobotEnv):
             time.sleep(0.002)
 
 
-    def exp_mocap_tcp_reward(self,parameters_to_change,parameters_values,np_actions_goal_puck,np_real_robot_pos):
+    def exp_mocap_tcp_reward(self,parameters_to_change,parameters_values,np_actions_goal_puck,np_real_robot_pos,render = True,render_mode = "human"):
 
         self.Change_Mujoco_Parameters(parameters_to_change,parameters_values)
 
@@ -391,6 +392,7 @@ class FetchEnv(robot_env.RobotEnv):
         actions_numpy_gripper = np.zeros([actions_numpy.shape[0],4])
         actions_numpy_gripper[:,:3] = actions_numpy
 
+
         for i in range (actions_numpy.shape[0]):
             actionRescaled = list(actions_numpy_gripper[i,:])
             if render:
@@ -398,9 +400,10 @@ class FetchEnv(robot_env.RobotEnv):
             #t.sleep(1)
 
             obs, reward, done, info = self.step(actionRescaled)
-            env.Save_Data_On_Environment()
+            self.Save_Data_On_Environment()
 
         np_exp_tcp = np.array(self.sergi_tcp)
+        self.np_exp_tcp_sergi = np_exp_tcp
 
         self.Reset_Save_Data_On_Environment()
 
@@ -409,11 +412,11 @@ class FetchEnv(robot_env.RobotEnv):
         self.sergi_experiments_tcp = []
 
         #NOTE compute the reward
-        reward = self.compute_reward_tcp_sergi(np_exp_tcp,np_real_robot_pos,orient_multiply = 0.009*0.5)
+        reward = self.compute_reward_tcp_sergi(np_exp_tcp,np_real_robot_pos)
         return reward
-    def compute_reward_tcp_sergi(self,np_exp_tcp,np_real_robot_pos,orient_multiply = 0.009*0.5):
+    def compute_reward_tcp_sergi(self,np_exp_tcp,np_real_robot_pos,orient_multiply = 0.000001):
 
-        np_okay = np_real_robot_pos
+        np_Okay = np_real_robot_pos
         np_test = np_exp_tcp
 
         #TCP euclidian distance, dataframes doesn't have time
@@ -456,7 +459,7 @@ class FetchEnv(robot_env.RobotEnv):
                 np_ori_test.append(p.getEulerFromQuaternion(np_test[i,3:]))
             np_ori_test = np.array(np_ori_test)
         np_ori = np_ori_Okay - np_ori_test
-        np_ori = np_ori * self.orient_multiply
+        np_ori = np_ori * orient_multiply
         np_ori = np.absolute(np_ori)
         np_ori = np_ori.sum()/np_ori.shape[0]
 
@@ -478,8 +481,8 @@ class FetchEnv(robot_env.RobotEnv):
     def step_joints_offset(self,action_offset,max_velocity = 30,kp=0.1,ki=0.0,kd=0.0):
 
         #Set the PID and PID set joint position
-        print("\n")
-        print(self.sim.data.ctrl)
+        #print("\n")
+        #print(self.sim.data.ctrl)
         for jointNum in range(7):
             self._pid[jointNum].max_velocity = max_velocity
 
@@ -488,16 +491,16 @@ class FetchEnv(robot_env.RobotEnv):
             self._pid[jointNum]._kd = kd
 
             theta = self.sim.data.sensordata[jointNum]
-            print(theta)
+            #print(theta)
             target_theta = theta + action_offset[jointNum]
             self._pid[jointNum].set_target_theta(np.rad2deg(target_theta))
             linearVelocity = self._pid[jointNum].get_velocity(np.rad2deg(theta)) /self._convertdeg2rad
-            print(linearVelocity)
+            #print(linearVelocity)
 
-            print("\n")
+            #print("\n")
             self.sim.data.ctrl[jointNum] = linearVelocity
 
-        print(self.sim.data.ctrl)
+        #print(self.sim.data.ctrl)
         self.sim.step()
         self._get_viewer('human').render()
         time.sleep(0.002)

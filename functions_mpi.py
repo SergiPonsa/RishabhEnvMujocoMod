@@ -18,6 +18,9 @@ import random
 from mujoco_py.modder import TextureModder, MaterialModder
 import cv2
 
+import pybullet as p
+import pandas as pd
+
 def MasterProgram(size,comm):
     results = [0]*(size-1)
     done = [False]*(size-1)
@@ -34,8 +37,9 @@ def MasterProgram(size,comm):
         print("results",results)
         print("done",done)
 
-def MasterProgramCrossEntropy(env,size,comm,parameters_to_change,n_iterations = 700,change_sigma_every = 50,
-    pop_size = 50, elite_fraction = 4/50, sigma = 0.3, sigma_reduction_per_one = 0.65,\
+#original sigma 0.3
+def MasterProgramCrossEntropy(env,size,comm,parameters_to_change= ["mass","inertia","dmin_equ","dmax_equ","width_equ","mid_point_equ","power_equ","damping_equ","stiffness_equ"],n_iterations = 700,change_sigma_every = 50,
+    pop_size = 40, elite_fraction = 2/40, sigma = 0.3, sigma_reduction_per_one = 0.65,\
     per_one_parameters_values = True):
 
     #Numbers of elements that you keep as the better ones
@@ -51,13 +55,13 @@ def MasterProgramCrossEntropy(env,size,comm,parameters_to_change,n_iterations = 
     #Initial best weights, are from 0 to 1, it's good to be small the weights, but they should be different from 0.
     # small to avoid overfiting , different from 0 to update them
 
-    if (per_one == True):
+    if (per_one_parameters_values  == True):
         original_parameters = np.array( env.Get_Mujoco_Parameters(parameters_to_change,unique_List = True) )
-        best_weight = sigma*np.random.randn( len(list(original_action)) )
+        best_weight = sigma*np.random.randn( len(list(original_parameters)) )
 
     else:
         original_parameters = np.array( env.Get_Mujoco_Parameters(parameters_to_change,unique_List = True) )
-        best_weight = np.add(sigma*np.random.randn( len(list(original_action)) ),original_parameters)
+        best_weight = np.add(sigma*np.random.randn( len(list(original_parameters)) ),original_parameters)
 
     #Each iteration, modify  + (from 0 to 1) the best weight randomly
     #Computes the reward with these weights
@@ -68,20 +72,20 @@ def MasterProgramCrossEntropy(env,size,comm,parameters_to_change,n_iterations = 
     #this it's show to evalute how good its
 
     for i_iteration in range(1, n_iterations+1):
-
+        print(i_iteration)
         #Generate new population weights, as a mutation of the best weight to test them
-        weights_pop = [best_weight + (sigma*np.random.randn(env.action_space)) for i in range(pop_size)]
+        weights_pop = [best_weight + (sigma*np.random.randn( len(original_parameters) )) for i in range(pop_size)]
 
         #Compute the parameters and obtain the rewards for each of them
         #print("iteration "+str(i_iteration))
-        if (per_one == True):
+        if (per_one_parameters_values  == True):
             rewards=[]
             for weights in weights_pop:
                 #print("New weights")
                 #print(weights)
                 #t.sleep(1000)
-                parameters_to_change_values = list( np.add(np.multiply(weights,original_action),original_action) )
-                results_parameters = [0]*(size-1)
+                parameters_to_change_values = list( np.add(np.multiply(weights,original_parameters),original_parameters) )
+                results = [0]*(size-1)
                 done = [False]*(size-1)
                 #"send parameters to start to all",
                 [comm.send(parameters_to_change_values,dest=d,tag=1) for d in range(1,size)]
@@ -90,7 +94,7 @@ def MasterProgramCrossEntropy(env,size,comm,parameters_to_change,n_iterations = 
                     # print("reading data of ",s)
                     results[s-1] = comm.recv(source=s,tag=2)
                     done[s-1] = comm.recv(source=s,tag=3)
-                result_avg = numpy.average( np.array(results) )
+                result_avg = np.average( np.array(results) )
                 rewards.append(result_avg)
         else:
             rewards=[]
@@ -113,8 +117,13 @@ def MasterProgramCrossEntropy(env,size,comm,parameters_to_change,n_iterations = 
         #print("\n")
 
         #Sort the rewards to obtain the best ones
+
+        rewards = np.array(rewards)
+
         elite_idxs = rewards.argsort()[-n_elite:]
+
         elite_weights = [weights_pop[i] for i in elite_idxs]
+
 
         #Set the best weight as the mean of the best ones
 
@@ -122,30 +131,35 @@ def MasterProgramCrossEntropy(env,size,comm,parameters_to_change,n_iterations = 
 
         #Get the reward with this new weight
 
-        if (per_one == True):
-            parameters_to_change_values = list( np.add(np.multiply(best_weight,original_action),original_action) )
+        if (per_one_parameters_values  == True):
+            parameters_to_change_values = list( np.add(np.multiply(best_weight,original_parameters),original_parameters) )
+            [comm.send(parameters_to_change_values,dest=d,tag=1) for d in range(1,size)]
             best_actions.append(parameters_to_change_values)
             for s in range(1,size):
                 # print("reading data of ",s)
                 results[s-1] = comm.recv(source=s,tag=2)
                 done[s-1] = comm.recv(source=s,tag=3)
-            reward = numpy.average( np.array(results) )
-            print("reward")
+            reward = np.average( np.array(results) )
+            print("\n","reward")
             print(reward)
             print("\n")
+
         else:
             parameters_to_change_values = list(best_weight)
+            [comm.send(parameters_to_change_values,dest=d,tag=1) for d in range(1,size)]
             best_actions.append(parameters_to_change_values)
             for s in range(1,size):
                 # print("reading data of ",s)
                 results[s-1] = comm.recv(source=s,tag=2)
                 done[s-1] = comm.recv(source=s,tag=3)
-            reward = numpy.average( np.array(results) )
+            reward = np.average( np.array(results) )
+
         scores_deque.append(reward)
         scores.append(reward)
-
+        print("I am going to save")
         #save the check point
         np.save("Parameters_train_tcp_euc_mocap.npy",np.array(parameters_to_change_values))
+        print("I saved")
 
         if i_iteration % change_sigma_every == 0:
             sigma = sigma * sigma_reduction_per_one
@@ -165,26 +179,41 @@ def MasterProgramCrossEntropy(env,size,comm,parameters_to_change,n_iterations = 
     plt.xlabel('Episode #')
     plt.show()
 
-def SlaveProgramCrossEntropyExperimentReward(rank,comm,experiment_number,\
+def SlaveProgramCrossEntropyExperimentReward(rank,env,comm,experiment_number,\
     path_numpy_actions = "Fetch_data/fetch_" ,path_data_excels = "Fetch_data/fetch_",\
-    parameters_to_change = ):
+    parameters_to_change = ["mass","inertia","dmin_equ","dmax_equ","width_equ","mid_point_equ","power_equ","damping_equ","stiffness_equ"]\
+ ):
 
-    #Experiment assignation
+    #Experiment parameters_valuesassignation
     render_mode = "human"
     #render_mode = "rgb_array"
-    render = True
+    render = False
     actions = []
     observations = []
     infos = []
 
-    np_actions_goal_puck = np.load( path_numpy_actions + str(experiment_number[rank]) + '.npz' )
-    np_real_robot = env.env.Excel_TCP_Joints_2_Numpy(path_data_excels + str(experiment_number[rank]) + '.xlsx' )
-    np_real_robot_pos = np_real_robot[:,:7]
+    #print("\n test")
+    #print(rank)
+    #print(experiment_number)
+    #print(experiment_number[rank-1])
+    np_actions_goal_puck = np.load( path_numpy_actions + str(experiment_number[rank-1]) + '.npz' )
+    np_real_robot = env.env.Excel_TCP_Joints_2_Numpy(path_data_excels + str(experiment_number[rank-1]) + '.xlsx' )
+    np_real_robot_pos = np_real_robot[:,7:]
+    #Convert euler to quaternion
+    #convert euler to quaternion
+    np_aux = np.zeros((np_real_robot_pos.shape[0],np_real_robot_pos.shape[1]+1))
+    np_aux[:,:-1] = np_real_robot_pos
+    for i in range(np_real_robot_pos.shape[0]):
+        np_aux[i,-4:] = list( p.getQuaternionFromEuler(np_real_robot_pos[i,:-3]) )
+    np_real_robot_pos = np_aux.copy()
     #Parameters to change loop
     while True:
-        parameters_to_change = comm.recv(source=0,tag=1)
+        parameters_to_change_values = comm.recv(source=0,tag=1)
         Done = False
-        reward = env.env.exp_mocap_tcp_reward(self,parameters_to_change,parameters_values,np_actions_goal_puck,np_real_robot_pos)
+        try:
+            reward = env.env.exp_mocap_tcp_reward(parameters_to_change,parameters_to_change_values,np_actions_goal_puck,np_real_robot_pos, render = render, render_mode = render_mode)
+        except:
+            reward = -1.5
         comm.send(reward,dest=0,tag=2)
         Done = True
         comm.send(Done,dest=0,tag=3)
