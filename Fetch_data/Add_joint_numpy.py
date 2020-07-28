@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 #add joint increment
 nExp =1
-for nExp in range(1,17):
+for nExp in range(100,102):
     data = np.load("fetch_"+str(nExp)+".npz")
     DataFrame = pd.read_excel("fetch_"+str(nExp)+".xlsx")
     DFnp = DataFrame.to_numpy()

@@ -27,7 +27,7 @@ from functions_mpi import *
 comm = MPI.COMM_WORLD
 size = comm.Get_size()
 rank = comm.Get_rank()
-number_to_experiment = [1,3,5,7,9,11]
+number_to_experiment = [1,3,5,107,109,111]
 
 if rank == 0:
     print("Hello I am the master rank", str(rank), "of", str(size))

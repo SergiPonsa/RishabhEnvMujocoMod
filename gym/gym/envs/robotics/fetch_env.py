@@ -96,7 +96,14 @@ class FetchEnv(robot_env.RobotEnv):
         self.initial_qpos = initial_qpos
         self.joint_control = joint_control
 
+        # Initial PID paameters
+        self.kp = [float(0.1)]*7
+        self.ki = [float(0.01)]*7
+        self.kd = [float(0.01)]*7
+        self.max_velocity = [float(100.0)]*7
+
         self.parameters_actuators = ["ctrlrange","forcerange","gainprm"]
+        self.parameters_pid = ["kp","ki","kd","max_velocity"]
         #gainprm has 10 values but only the first one it's used.
         self.parameters_body = ["mass","inertia"]
         self.parameters_joints = ["stiffness"]
@@ -104,7 +111,7 @@ class FetchEnv(robot_env.RobotEnv):
         self.parameters_equ_cons = ["dmin_equ","dmax_equ","width_equ","mid_point_equ","power_equ","damping_equ","stiffness_equ"]
 
         self.parameters_all = self.parameters_actuators + self.parameters_body + self.parameters_joints\
-                        + self.parameters_geometry + self.parameters_equ_cons
+                        + self.parameters_geometry + self.parameters_equ_cons + self.parameters_pid
 
         #Check if the data provided is right
         self.dict_values_parameters = {}
@@ -478,17 +485,59 @@ class FetchEnv(robot_env.RobotEnv):
         np_data = df.to_numpy()
         return np_data
 
-    def step_joints_offset(self,action_offset,max_velocity = 30,kp=0.1,ki=0.0,kd=0.0):
+    def exp_joints_tcp_reward(self,parameters_to_change,parameters_values,np_actions_goal_puck,np_real_robot_pos,render = True,render_mode = "human"):
+
+        self.Change_Mujoco_Parameters(parameters_to_change,parameters_values)
+
+        pos_goal = list(np_actions_goal_puck["goal"][0,:])
+        pos_puck = list(np_actions_goal_puck["puck"][0,:])
+
+        self.object_pos_from_base = pos_puck[:2]
+        self.goal_pos_from_base = pos_goal
+
+        obs = self.reset()
+
+        actions_numpy = np_actions_goal_puck["actions_j"]
+
+        for i in range (actions_numpy.shape[0]):
+            actionRescaled = list(actions_numpy[i,:])
+            if render:
+                self.render(mode=render_mode)
+            #t.sleep(1)
+            self.step_joints_offset(actionRescaled,\
+                        max_velocity = self.max_velocity,\
+                        kp = self.kp,\
+                        ki = self.ki,\
+                        kd = self.kd,\
+                        render = render,\
+                        )
+
+            self.Save_Data_On_Environment()
+
+        np_exp_tcp = np.array(self.sergi_tcp)
+        self.np_exp_tcp_sergi = np_exp_tcp
+
+        self.Reset_Save_Data_On_Environment()
+
+        #Delete the data to do a new experiment without increase the memory
+        self.sergi_experiments_joints = []
+        self.sergi_experiments_tcp = []
+
+        #NOTE compute the reward
+        reward = self.compute_reward_tcp_sergi(np_exp_tcp,np_real_robot_pos)
+        return reward
+
+    def step_joints_offset(self,action_offset,max_velocity = [30]*7,kp=[0.1]*7,ki=[0.0]*7,kd=[0.0]*7,render = True):
 
         #Set the PID and PID set joint position
         #print("\n")
         #print(self.sim.data.ctrl)
         for jointNum in range(7):
-            self._pid[jointNum].max_velocity = max_velocity
+            self._pid[jointNum].max_velocity = max_velocity[jointNum]
 
-            self._pid[jointNum]._kp = kp
-            self._pid[jointNum]._ki = ki
-            self._pid[jointNum]._kd = kd
+            self._pid[jointNum]._kp = kp[jointNum]
+            self._pid[jointNum]._ki = ki[jointNum]
+            self._pid[jointNum]._kd = kd[jointNum]
 
             theta = self.sim.data.sensordata[jointNum]
             #print(theta)
@@ -502,8 +551,9 @@ class FetchEnv(robot_env.RobotEnv):
 
         #print(self.sim.data.ctrl)
         self.sim.step()
-        self._get_viewer('human').render()
-        time.sleep(0.002)
+        if (render == True):
+            self._get_viewer('human').render()
+            time.sleep(0.002)
 
 
 
@@ -533,6 +583,7 @@ class FetchEnv(robot_env.RobotEnv):
                                     else len(joints_to_change) if (parameter_change in self.parameters_joints)\
                                     else len(geometries_to_change) if (parameter_change in self.parameters_geometry)\
                                     else len(equ_cons_to_change) if (parameter_change in self.parameters_equ_cons)\
+                                    else len(joints_to_change) if (parameter_change in self.parameters_pid)\
                                     else 0
                 Expected_values += self.dict_values_parameters[parameter_change]*number_of_elements
             else:
@@ -550,6 +601,7 @@ class FetchEnv(robot_env.RobotEnv):
                                 else len(joints_to_change) if (parameter_change in self.parameters_joints)\
                                 else len(geometries_to_change) if (parameter_change in self.parameters_geometry)\
                                 else len(equ_cons_to_change) if (parameter_change in self.parameters_equ_cons)\
+                                else 7 if (parameter_change in self.parameters_pid)\
                                 else 0
             #Get the value
             value=[]
@@ -633,6 +685,19 @@ class FetchEnv(robot_env.RobotEnv):
                     elif(parameter_change == "stiffness_equ"):
                         self.sim.model.eq_solref[equ_cons][1] = list(list(value_x_element).pop(0)).pop(0) #only a value
 
+                    else:
+                        print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
+            if (parameter_change in self.parameters_pid):
+                for joint in range(len(joints_to_change)):
+
+                    if(parameter_change == "kp"):
+                        self.kp[joint] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    elif (parameter_change == "ki"):
+                        self.ki[joint] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    elif (parameter_change == "kd"):
+                        self.kd[joint] = list(list(value_x_element).pop(0)).pop(0) #only a value
+                    elif (parameter_change == "max_velocity"):
+                        self.max_velocity[joint] = list(list(value_x_element).pop(0)).pop(0) #only a value
                     else:
                         print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
 
@@ -728,6 +793,20 @@ class FetchEnv(robot_env.RobotEnv):
 
                     else:
                         print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
+            if (parameter_change in self.parameters_pid):
+                for joint in range(len(joints_to_change)):
+                    if(parameter_change == "kp"):
+                        value.append(self.kp[joint])
+                    elif (parameter_change == "ki"):
+                        value.append(self.ki[joint])
+                    elif (parameter_change == "kd"):
+                        value.append(self.kd[joint])
+                    elif (parameter_change == "max_velocity"):
+                        value.append(self.max_velocity[joint])
+                    else:
+                        print(("\n error," + parameter_change + "it's not defined, modify the code")*20)
+
+
             parameters_values.append(value)
 
         if (unique_List == True):
