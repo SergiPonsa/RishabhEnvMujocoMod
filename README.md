@@ -4,13 +4,15 @@
 
 # Instructions to create and load a conda enviorment, the conda enviorment used in the TFM is saved on Mujoco_Mod_Parameters.yml
 
-```
+
 Export your environment
+```
 conda env export > environment.yml
 ```
 
-```
 Load environment
+
+```
 conda env create -f environment.yml 
 ```
 # Instructions to use the right gym enviorments
