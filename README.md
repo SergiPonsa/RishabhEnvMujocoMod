@@ -39,8 +39,20 @@ python datagen_sideways_fold.py Gen3SidewaysFold-v0 --mode=demo --render
 https://towardsdatascience.com/parallel-programming-in-python-with-message-passing-interface-mpi4py-551e3f198053
 
 ## Jupyter notebook to test the enviorment with the modified parameters obtained using Cross Entropy
+* Fetch Mujoco Check Results.ipynb
 
 ## Rishabh enviorment modified
+Rishabh original funtions fetch_env.py has been modified to fetch_env_org.py. (RishabhEnvMujocoMod/gym/gym/envs/robotics/)
+My version modified from Rishabh's environment functions is saved in fetch_env.py (RishabhEnvMujocoMod/gym/gym/envs/robotics/)
+The xml files used are robot2.xml , shared2.xml and slide2.xml.(RishabhEnvMujocoMod/gym/gym/envs/robotics/assets/fetch/)
+Creation of the gym enviorment slide.py (RishabhEnvMujocoMod/gym/gym/envs/robotics/fetch/)
 
 
-## Failed codes on jupyter trying to parallelize the Mujoco simulation
+## Functions to manage the data to extract conclusions
+* Fetch_data/RishabExp_to_100fecth_Sergi.py : Create a npz file from Rishabh's actions, similar to the ones obtained from the puck experiments recorded on the Simulation_pybullet repository.
+* Fetch_data/Add_joint_numpy.py: From the joint data recorded on the npz files, creates the actions as joint offsets in order to be able to apply the joint control.
+* Create_joint_excel.py:Read the joint numpy file and creates and excel to read the data.
+* Create_tcp_excel.py: Read the tcp numpy file and creates and excel to read the data.
+
+## Failed code on jupyter trying to parallelize the Mujoco simulation in jupyter notebook
+entropy-commented-without-net-tcp-euclidian-RelativeJoints.ipynb
